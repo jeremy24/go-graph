@@ -1,11 +1,19 @@
 package GraphMatrix
 
 //import "fmt"
+import (
+	"math/rand"
+//	"fmt"
+)
 
 const (
-	ON  uint32 = 0x1
-	OFF uint32 = 0x0
+	ON  	uint32 = 0x1
+	OFF 	uint32 = 0x0
+	ADD 	uint32 = 0x3
+	REMOVE	uint32 = 0x4
+	MARGIN	float32 = 5.0/100.0 
 )
+
 
 // this is the basic interface that is used for a graph edge graph-matrix
 type GraphMatrix interface {
@@ -17,15 +25,23 @@ type GraphMatrix interface {
 	Remove(row int, col int)
 	Weight(row int, col int) float32
 	AddWeight(row int, col int, weight float32)
+	Density() float32
+	FillToDensity(density float32)
 }
 
 type bitMatrix struct {
 	edges [][]uint32
 	weights [][]float32
-	rows  int
-	cols  int
+	nedges int
+	nverts int
 }
 
+
+func IsWithinMargin(num float32) bool {
+	upper := num + MARGIN
+	lower := num + MARGIN
+	return num < upper && num > lower
+}
 
 // make sure x <= y
 func Order(x int, y int) (uint, uint) {
@@ -39,24 +55,38 @@ func Order(x int, y int) (uint, uint) {
 	This will initialize all of the values in a new matrix for us.
 	It only stores the values as a triangle matrix in order to save space
  */
-func NewMatrix(rows int, cols int) GraphMatrix {
-	edges := make([][]uint32, rows) // initialize a slice of dy slices
+func NewMatrix(nverts int) GraphMatrix {
+	edges := make([][]uint32, nverts) // initialize a slice of dy slices
 
-	for i := 0; i < rows; i++ {
-		edges[i] = make([]uint32, cols - i + 1) // initialize a slice of dx unit8 in each of dy slices
+	for i := 0; i < nverts; i++ {
+		edges[i] = make([]uint32, nverts - i + 1) // initialize a slice of dx unit8 in each of dy slices
 	}
 
-	weights := make([][]float32, rows) // initialize a slice of dy slices
+	weights := make([][]float32, nverts) // initialize a slice of dy slices
 
-	for i := 0; i < rows; i++ {
-		weights[i] = make([]float32, cols - i + 1) // initialize a slice of dx unit8 in each of dy slices
+	for i := 0; i < nverts; i++ {
+		weights[i] = make([]float32, nverts - i + 1) // initialize a slice of dx unit8 in each of dy slices
 	}
 
-	return bitMatrix{edges, weights,rows, cols}
+	return &bitMatrix{edges, weights, 0, nverts}
 }
 
+
+func (g bitMatrix) FillToDensity(density float32) {
+
+	for {
+		x := rand.Int() % g.nverts
+		y := rand.Int() % g.nverts
+		g.Connect(x, y)
+		if IsWithinMargin( g.Density() ) {
+			return
+		}
+	}
+}
+
+
 func (g bitMatrix) Dims() (int, int) {
-	return g.rows, g.cols
+	return g.nverts, g.nverts
 }
 
 // Check if an edge exists
@@ -67,9 +97,15 @@ func (g bitMatrix) Has(i int, j int) bool {
 	return ret
 }
 
-func (g bitMatrix) Connect(i int, j int) {
+func (g *bitMatrix) Connect(i int, j int) {
 	row, col := Order(i, j)
+
+	if g.Has(int(row), int(col)) {
+		return
+	}
 	g.SetBit(uint(row), uint(col), ON)
+	g.nedges += 1
+	//fmt.Println("Connected:", i, j, g.nedges)
 }
 
 func (g bitMatrix) Weight(i int, j int) float32 {
@@ -82,9 +118,15 @@ func (g bitMatrix) AddWeight(i int, j int, weight float32) {
 	g.weights[row][col] = weight
 }
 
-func (g bitMatrix) Remove(i int, j int) {
+func (g *bitMatrix) Remove(i int, j int) {
 	row, col := Order(i, j)
-	g.SetBit(uint(row), uint(col), OFF)
+
+	if g.Has(int(row), int(col)) {
+		g.SetBit(uint(row), uint(col), OFF)
+		g.nedges -= 1
+	//	fmt.Println("Removed:", i, j, g.nedges)
+	}
+
 }
 
 
@@ -121,5 +163,20 @@ func (g bitMatrix) GetBit(i uint, j uint) bool {
 	// get the bit and mask off the rest
 	ret := (chunk & offset) == offset
 	return ret
+}
+
+func AlterEdges(g *bitMatrix, action uint32) {
+	if action == ADD {
+		g.nedges += 1
+	} else {
+		g.nedges -= 1
+	}
+}
+
+func (g bitMatrix) Density() float32 {
+	E := float32(g.nedges)
+	V := float32(g.nverts)
+	//fmt.Println("E:",E, " V:", V)
+	return E / (V * ( V-1))
 }
 
